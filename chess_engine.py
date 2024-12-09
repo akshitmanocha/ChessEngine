@@ -94,60 +94,12 @@ def evaluate_board(game, perspective):
             col += 1
     return constant*score
 
-def is_capture(move, game):
-    target_square = move[2:4]
-    target_piece = game.board.get_piece(Game.xy2i(target_square))
-    return target_piece != ' '
-
-def maximum_capture_gain(game):
-    max_gain = 0
-    moves = list(game.get_moves())
-    for move in moves:
-        if is_capture(move, game):
-            target_square = move[2:4]
-            target_piece = game.board.get_piece(Game.xy2i(target_square))
-            if target_piece != ' ':
-                gain = PIECE_VALUES[target_piece.lower()]
-                if gain > max_gain:
-                    max_gain = gain
-    return max_gain
-
-def quiescence_search(game, alpha, beta, perspective):
-    stand_pat = evaluate_board(game, perspective)
-    if stand_pat >= beta:
-        return beta
-
-    # Delta pruning
-    max_gain = maximum_capture_gain(game)
-    if stand_pat + max_gain <= alpha:
-        return alpha
-
-    if stand_pat > alpha:
-        alpha = stand_pat
-
-    moves = list(game.get_moves())
-    for move in moves:
-        if not is_capture(move, game):
-            continue
-        new_game = Game(str(game))
-        new_game.apply_move(move)
-        score = -quiescence_search(new_game, -beta, -alpha, perspective)
-        if score >= beta:
-            return beta
-        if score > alpha:
-            alpha = score
-    return alpha
-
-def minimax(game, depth, alpha, beta, maximizingPlayer, perspective, start_time, time_limit, transposition_table):
+def minimax(game, depth, maximizingPlayer, perspective, start_time, time_limit):
     if time.time() - start_time > time_limit:
         return evaluate_board(game, perspective), None
 
-    if depth == 0 or game.status >=2:
-        return quiescence_search(game, alpha, beta, perspective), None
-
-    board_key = str(game.board)
-    if board_key in transposition_table:
-        return transposition_table[board_key], None
+    if depth == 0 or game.status == Game.CHECKMATE or game.status == Game.STALEMATE:
+        return evaluate_board(game, perspective), None
 
     moves = list(game.get_moves())
     best_move = None
@@ -157,28 +109,20 @@ def minimax(game, depth, alpha, beta, maximizingPlayer, perspective, start_time,
         for move in moves:
             new_game = Game(str(game))
             new_game.apply_move(move)
-            eval_score, _ = minimax(new_game, depth - 1, alpha, beta, False, perspective, start_time, time_limit, transposition_table)
+            eval_score, _ = minimax(new_game, depth - 1, False, perspective, start_time, time_limit)
             if eval_score > max_eval:
                 max_eval = eval_score
                 best_move = move
-            alpha = max(alpha, eval_score)
-            if beta <= alpha:
-                break 
-        transposition_table[board_key] = max_eval
         return max_eval, best_move
     else:
         min_eval = float('inf')
         for move in moves:
             new_game = Game(str(game))
             new_game.apply_move(move)
-            eval_score, _ = minimax(new_game, depth - 1, alpha, beta, True, perspective, start_time, time_limit, transposition_table)
+            eval_score, _ = minimax(new_game, depth - 1,True, perspective, start_time, time_limit)
             if eval_score < min_eval:
                 min_eval = eval_score
                 best_move = move
-            beta = min(beta, eval_score)
-            if beta <= alpha:
-                break
-        transposition_table[board_key] = min_eval
         return min_eval, best_move
     
 def is_endgame(game):
@@ -192,7 +136,7 @@ def is_endgame(game):
                     minor_pieces += 1
                     if char == 'q':
                         queen += 1
-        if queen >= 1 and minor_pieces > 4:
+        if queen >= 1 and minor_pieces > 3:
             return False
         elif minor_pieces > 4:
             return False
@@ -282,34 +226,33 @@ def hybrid_chess_bot(obs):
     game = Game(obs.board)
     perspective = game.state.player
     if perspective == 'w':
-        maximizing_player = True
-    else: 
-        maximizing_player = False
-    start_time = time.time()
-    time_limit = 0.07
-    best_move = None
-    moves = list(game.get_moves())
-    transposition_table = {}
-    if is_endgame(game):
-        return enhanced_heuristic_with_time_limit(obs, 0.09, time_limit)
-    else:
-        depth = 2
-        while depth <= 3:
-            elapsed_time = time.time() - start_time
-            if elapsed_time >= time_limit:
-                break
-            eval_score, move = minimax(game, depth, float('-inf'), float('inf'), maximizing_player, perspective, start_time, time_limit, transposition_table)
-            if move:
-                best_move = move
-            depth += 1
-        if best_move:
-            return best_move
+        start_time = time.time()
+        time_limit = 0.07
+        best_move = None
+        moves = list(game.get_moves())
+        transposition_table = {}
+        if is_endgame(game):
+            return enhanced_heuristic_with_time_limit(obs, 0.09, time_limit)
         else:
-            elapsed_time = time.time() - start_time
-            if elapsed_time < time_limit:
-                return enhanced_heuristic_with_time_limit(obs,0.015, time_limit - elapsed_time)
+            depth = 1
+            while depth <= 5:
+                elapsed_time = time.time() - start_time
+                if elapsed_time >= time_limit:
+                    break
+                eval_score, move = minimax(game, depth, float('-inf'), float('inf'), True, perspective, start_time, time_limit, transposition_table)
+                if move:
+                    best_move = move
+                depth += 1
+            if best_move:
+                return best_move
             else:
-                return random.choice(moves)
+                elapsed_time = time.time() - start_time
+                if elapsed_time < time_limit:
+                    return enhanced_heuristic_with_time_limit(obs,0.015, time_limit - elapsed_time)
+                else:
+                    return random.choice(moves)
+    else:
+        enhanced_heuristic_with_time_limit(obs, 0.09, time_limit)
 
 def agent(obs, config):
     return hybrid_chess_bot(obs)
