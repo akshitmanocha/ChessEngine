@@ -250,6 +250,83 @@ def is_endgame(game):
         elif minor_pieces > 4:
             return False
         return True
+    
+def endgame_heuristic(obs, per_move_time, remaining_time):
+    start_time = time.time()
+    game = Game(obs.board)
+    moves = list(game.get_moves())
+    random.shuffle(moves)
+    best_score = float('-inf')
+    best_move = None
+    for move in moves:
+        move_start = time.time()
+        elapsed = move_start - start_time
+        remaining = remaining_time - elapsed
+        if remaining <= 0:
+            break 
+
+        if elapsed >= per_move_time:
+            continue
+
+        new_game = Game(str(game))
+        new_game.apply_move(move)
+        if new_game.status == Game.CHECKMATE:
+            return move
+        move_score = 0
+        if new_game.status == Game.CHECK:
+            move_score += 1000 
+
+        if game.state.player == 'w':
+            opponent_king_piece = 'k'
+            us = 'w'
+        else:
+            opponent_king_piece = 'K'
+            us = 'b'
+        opponent_king_pos = new_game.board.find_piece(opponent_king_piece)
+        if opponent_king_pos != -1:
+            to_square = move[2:4]
+            moving_piece_pos = Game.xy2i(to_square)
+            dx = (opponent_king_pos % 8) - (moving_piece_pos % 8)
+            dy = (opponent_king_pos // 8) - (moving_piece_pos // 8)
+            distance = abs(dx) + abs(dy)
+            move_score += (14 - distance) * 10
+            adjacent_squares = []
+            xk = opponent_king_pos % 8
+            yk = opponent_king_pos // 8
+            for dxk in [-1, 0, 1]:
+                for dyk in [-1, 0, 1]:
+                    nxk = xk + dxk
+                    nyk = yk + dyk
+                    if 0 <= nxk < 8 and 0 <= nyk < 8:
+                        new_pos = nyk * 8 + nxk
+                        if new_pos != opponent_king_pos:
+                            adjacent_squares.append(new_pos)
+            our_moves = list(new_game._all_moves(player=us))
+            attack_adjacent_squares = 0
+            for our_move in our_moves:
+                target_square = Game.xy2i(our_move[2:4])
+                if target_square in adjacent_squares:
+                    attack_adjacent_squares += 1
+            move_score += attack_adjacent_squares * 50
+
+        opponent_moves = list(new_game.get_moves())
+        is_safe = True
+        for opp_move in opponent_moves:
+            opp_to_square = opp_move[2:4]
+            if opp_to_square == move[2:4]:
+                is_safe = False
+                break
+        if not is_safe:
+            continue
+
+        if move_score > best_score:
+            best_score = move_score
+            best_move = move
+
+    if best_move:
+        return best_move
+    else:
+        return enhanced_heuristic_with_time_limit(obs, 0.05, 0.1)
 
 
 def enhanced_heuristic_with_time_limit(obs, per_move_time, remaining_time):
@@ -324,7 +401,11 @@ def hybrid_chess_bot(obs):
     moves = list(game.get_moves())
     fen_history = [game.get_fen()]
     if is_endgame(game):
-        return enhanced_heuristic_with_time_limit(obs, 0.09, time_limit)
+        move =  endgame_heuristic(obs,0.95, time_limit)
+        if move:
+            return move
+        else:
+            return random.choice(moves)
     else:
         depth = 1
         while depth <= 3:
